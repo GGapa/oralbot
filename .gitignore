@@ -1,0 +1,21 @@
+# 会话与个人配置
+config.json
+cookies.json
+pw_state.json
+login_ok.txt
+entry_url.txt
+.pw_profile/
+
+# 运行产物
+*.m4a
+*.mp3
+*.wav
+*.log
+__pycache__/
+.venv/
+# 逆向用的中间文件
+bundle.split.js
+learning-frame.bundle.*.js
+lindge-service.min.js
+frame.html
+*-preview.json
