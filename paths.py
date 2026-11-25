@@ -19,4 +19,19 @@ def ffmpeg() -> str:
     ]:
         if Path(p).exists():
             return p
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        pass
     raise RuntimeError("找不到 ffmpeg，请安装并加入 PATH，或设置环境变量 FFMPEG")
+
+
+def browser_channel():
+    channel = os.environ.get("ORALBOT_BROWSER")
+    if channel:
+        return None if channel == "chromium" else channel
+    for root in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+        if (Path(os.environ.get(root, "")) / "Google/Chrome/Application/chrome.exe").is_file():
+            return "chrome"
+    return None
