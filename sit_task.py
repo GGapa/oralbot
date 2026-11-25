@@ -25,6 +25,15 @@ def do_situational(act, mode="practice", max_shots=40):
     answers = 0
     for step in range(max_shots):
         code, ns = get("learning-practice/attempts/situational/%s/next-shot" % ace)
+        tries = 0
+        while not isinstance(ns, dict) and tries < 6:
+            # 405 不是"暂时性"：token 被轮换后网关对过期会话返回 405 而不是 401，
+            # util 的 401 续期逻辑不会触发。这里显式续期再重试。
+            if code == 405:
+                api.refresh()
+            time.sleep(3)
+            tries += 1
+            code, ns = get("learning-practice/attempts/situational/%s/next-shot" % ace)
         if not isinstance(ns, dict):
             return "next-shot-failed %s %s" % (code, str(ns)[:120])
         if ns.get("isEnding"):

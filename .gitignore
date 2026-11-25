@@ -5,6 +5,11 @@ pw_state.json
 login_ok.txt
 entry_url.txt
 .pw_profile/
+.pw_profile_*/
+.accounts/
+account.txt
+course_list.txt
+_peek.py
 
 # 运行产物
 *.m4a
