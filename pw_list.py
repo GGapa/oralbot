@@ -4,7 +4,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from paths import BASE
+from paths import BASE, browser_channel
 
 cfg = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
 entry = cfg["entry_url"]
@@ -12,7 +12,7 @@ origin = cfg["origin"] + "/"
 ck = json.loads((BASE / "cookies.json").read_text(encoding="utf-8"))
 
 with sync_playwright() as p:
-    b = p.chromium.launch(channel="chrome", headless=True)
+    b = p.chromium.launch(channel=browser_channel(), headless=True)
     ctx = b.new_context()
     # __Host- 前缀 cookie 必须 host-only，用 url= 不能用 domain=
     ctx.add_cookies([{"name": k, "value": v, "url": origin,

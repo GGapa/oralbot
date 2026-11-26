@@ -20,13 +20,20 @@
 
 - Windows（语音用系统 SAPI；其他系统需自行替换 `tts.py`）
 - Python 3.10+
-- Chrome
-- ffmpeg（在 PATH 里，或用环境变量 `FFMPEG` 指定）
+- Chrome，或 Playwright 配套 Chromium（`python -m playwright install chromium`）
+- ffmpeg（在 PATH 里，或用环境变量 `FFMPEG` 指定；也可安装 `imageio-ffmpeg` 使用其自带程序）
 
 ```bash
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
+# 没有 Chrome 时安装配套浏览器：
+.venv\Scripts\python.exe -m playwright install chromium
+# 可选：没有独立安装 ffmpeg 时使用
+.venv\Scripts\pip install imageio-ffmpeg
 ```
+
+默认优先使用已安装的 Chrome，否则使用配套 Chromium。可通过环境变量
+`ORALBOT_BROWSER=chrome`、`msedge` 或 `chromium` 显式选择浏览器。
 
 ## 使用
 
@@ -41,6 +48,8 @@ copy config.example.json config.json
 ```bash
 .venv\Scripts\python.exe login_helper.py
 ```
+
+登录成功并保存 cookie 后，登录窗口会自动关闭，这是正常行为。
 
 3. 拉取课程目录、生成活动清单：
 
@@ -88,8 +97,17 @@ POST orchestration-context/my/contexts/{att}/process-data       {dataType:"KeyVa
 POST learning-practice/attempts/{att}/reading/complete
 ```
 
-必须写全 KV：`readingDuration`（字符串秒，≥60）、`finishReading:"true"`、
-`isReachDurationTarget:"true"`、`finished:"1"`。
+阅读 KV 包括 `readingDuration`（字符串秒，达到活动时长）、`finishReading:"true"`、
+`isReachDurationTarget:"true"`。`finished` 由正式的 `reading/complete` 接口设置。
+
+课程完成状态以网页使用的接口为准：
+
+```
+POST learning-content/progress/my/{off}/{sectionId}  {activityIds:[...]}
+```
+
+`learning-practice/my/offering/{off}/activity-progress` 可用于取得作答 `attemptId`，
+但它返回的旧作答状态可能与课程完成状态不同，不能单独用于跳过活动或验收。
 
 ### 词汇训练
 
@@ -122,15 +140,19 @@ POST learning-practice/attempts/{ace}/{att}/oral/complete    {trainingType:"Prac
 ### 情景口语
 
 ```
+GET  learning-practice/contents-preview/situational-speaking/{act} -> trainingMode (Practice/Exam)
+POST learning-practice/attempts/{off}/{act}/{mode}/situational -> attemptId
 POST learning-practice/contents/situational/{act}/scene      -> activityExecutionId, sceneId
-POST learning-practice/attempts/{off}/{act}/practice/situational
 GET  learning-practice/attempts/situational/{ace}/next-shot  -> shotId/type/recordId/timeLimit/tip
 POST learning-practice/reviews/situational/{ace}/{recordId}  {contextId, record}
 POST learning-practice/attempts/{ace}/{att}/situational/complete
 ```
 
+必须先创建作答再获取场景，否则场景可能关联错误的执行上下文，导致 `next-shot` 返回 405。
+`mode` 使用预览中训练模式的小写形式；完成接口的 `trainingType` 使用 `Practice` 或 `Exam`。
 `next-shot` 幂等：不提交录音就不推进。`Narrative`（`timeLimit=0`）镜再取一次即跳过，
-`PureResponse` / `VisualResponse` 需要交录音。偶发 405 是暂时性的，重试即可。
+`PureResponse` / `VisualResponse` 需要交录音。405 不按登录过期处理；401 由请求封装续期。
+场景循环、步数耗尽、评测失败或评测超时均返回错误，不再递交场景完成。
 
 ### 音频上传
 
@@ -164,3 +186,11 @@ body = 原始字节   ->  {accessId}
 - `config.json`、`cookies.json`、`.pw_profile/` 含个人会话与课程信息，已在
   `.gitignore` 中排除，不要提交。
 - 平台若改版（接口或完成判定变化），按上面的接口表重新对齐即可。
+
+## 离线回归测试
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+测试使用模拟接口，不需要登录或真实课程配置，也不会提交学习记录。

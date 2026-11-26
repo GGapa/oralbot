@@ -8,37 +8,46 @@ OFF = api.cfg["courseOfferingId"]
 SEC = api.cfg.get("sectionId", "")
 
 
-def do_situational(act, mode="practice", max_shots=40):
-    code, sc = post("learning-practice/contents/situational/%s/scene" % act["id"],
-                    {"offeringId": OFF, "sectionId": SEC})
-    if not isinstance(sc, dict) or not sc.get("sceneId"):
-        return "scene-failed %s" % str(sc)[:120]
-    ace = sc["activityExecutionId"]
+def do_situational(act, mode=None, max_shots=40):
+    code, preview = get("learning-practice/contents-preview/situational-speaking/%s" % act["id"])
+    if code != 200 or not isinstance(preview, dict):
+        return "preview-failed %s" % code
+    mode = mode if mode is not None else preview.get("trainingMode")
+    training_type = {"practice": "Practice", "exam": "Exam"}.get(str(mode).lower())
+    if training_type is None:
+        return "invalid-training-mode %s" % mode
+    mode = training_type.lower()
     code, st = post("learning-practice/attempts/%s/%s/%s/situational" % (OFF, act["id"], mode),
                     {"sectionId": SEC})
-    if not isinstance(st, dict) or not st.get("attemptId"):
+    if not 200 <= code < 300 or not isinstance(st, dict) or not st.get("attemptId"):
         return "create-failed %s" % str(st)[:120]
     att = st["attemptId"]
+    # The webpage creates the attempt before requesting its scene execution.
+    code, sc = post("learning-practice/contents/situational/%s/scene" % act["id"],
+                    {"offeringId": OFF, "sectionId": SEC})
+    if not 200 <= code < 300 or not isinstance(sc, dict) or not sc.get("sceneId") or not sc.get("activityExecutionId"):
+        return "scene-failed %s" % str(sc)[:120]
+    ace = sc["activityExecutionId"]
 
     seen = {}
     shots = 0
     answers = 0
+    ended = False
     for step in range(max_shots):
         code, ns = get("learning-practice/attempts/situational/%s/next-shot" % ace)
         tries = 0
-        while not isinstance(ns, dict) and tries < 6:
-            # 405 不是"暂时性"：token 被轮换后网关对过期会话返回 405 而不是 401，
-            # util 的 401 续期逻辑不会触发。这里显式续期再重试。
-            if code == 405:
-                api.refresh()
+        while code >= 500 and tries < 6:
             time.sleep(3)
             tries += 1
             code, ns = get("learning-practice/attempts/situational/%s/next-shot" % ace)
-        if not isinstance(ns, dict):
+        if code != 200 or not isinstance(ns, dict):
             return "next-shot-failed %s %s" % (code, str(ns)[:120])
         if ns.get("isEnding"):
+            ended = True
             break
         sid = ns.get("shotId")
+        if not sid:
+            return "next-shot-missing-id"
         seen[sid] = seen.get(sid, 0) + 1
         if seen[sid] > 3:
             break
@@ -54,18 +63,27 @@ def do_situational(act, mode="practice", max_shots=40):
             code, res = post("learning-practice/reviews/situational/%s/%s" % (ace, rid),
                              {"contextId": att, "record": acc})
             exe = res.get("executionId") if isinstance(res, dict) else None
+            if not 200 <= code < 300 or not exe:
+                return "review-start-failed %s" % code
             for _ in range(40):
-                if not exe:
-                    break
                 c2, p = get("orchestration-pipeline/pipeline-executions/%s/progress" % exe)
-                if isinstance(p, dict) and p.get("status") in ("Completed", "Succeeded", "Failed"):
-                    break
+                if c2 == 200 and isinstance(p, dict):
+                    if p.get("status") == "Failed":
+                        return "review-failed"
+                    if p.get("status") in ("Completed", "Succeeded"):
+                        break
                 time.sleep(2)
+            else:
+                return "review-timeout"
             answers += 1
             print("   sit shot %d answered" % (step + 1), flush=True)
         else:
             time.sleep(1)
 
+    if not ended:
+        return "scene-not-ended shots=%d answers=%d" % (shots, answers)
     code, _ = post("learning-practice/attempts/%s/%s/situational/complete" % (ace, att),
-                   {"trainingType": "Practice"})
+                   {"trainingType": training_type})
+    if not 200 <= code < 300:
+        return "complete-failed %s" % code
     return "sit shots=%d answers=%d complete=%s" % (shots, answers, code)

@@ -16,9 +16,23 @@ def progress_map():
     ids = [a["id"] for a in ACTS]
     code, pr = post("learning-practice/my/offering/%s/activity-progress" % OFF,
                     {"activityIds": ids, "sectionId": SEC})
-    if not isinstance(pr, list):
+    if code != 200 or not isinstance(pr, list):
         raise RuntimeError("progress failed: %s %s" % (code, str(pr)[:200]))
-    return {x["activityId"]: x for x in pr}
+    attempts = {x["activityId"]: x for x in pr}
+    # Course progress is authoritative; attempt status can refer to stale contexts.
+    code, course_progress = post("learning-content/progress/my/%s/%s" % (OFF, SEC),
+                                 {"activityIds": ids})
+    if code != 200 or not isinstance(course_progress, list):
+        raise RuntimeError("course progress failed: %s" % code)
+    course_ids = {state["activityId"] for state in course_progress}
+    if set(ids) - course_ids:
+        raise RuntimeError("course progress missing activities")
+    for state in course_progress:
+        item = attempts.setdefault(state["activityId"], {})
+        item["status"] = state["status"]
+        if state.get("taskId"):
+            item["attemptId"] = state["taskId"]
+    return attempts
 
 
 def do_quiz(act):
@@ -80,7 +94,7 @@ def complete_reading(act):
          {"featureCodes": ["reading"], "expiresIn": 3600})
     dur = max(60, int(act.get("dur") or 60))
     kv = {"readingDuration": str(dur), "finishReading": "true",
-          "isReachDurationTarget": "true", "finished": "1"}
+          "isReachDurationTarget": "true"}
     post("orchestration-context/my/contexts/%s/process-data" % att,
          {"dataType": "KeyValue", "kvEntries": kv})
     code, _ = post("learning-practice/attempts/%s/reading/complete" % att)
@@ -128,7 +142,6 @@ def do_vocabulary(act, per_word=True):
         ok += 1
 
     kv = {w["replyId"]: "1" for w in words}
-    kv["finished"] = "1"
     post("orchestration-context/my/contexts/%s/process-data" % att,
          {"dataType": "KeyValue", "kvEntries": kv})
     post("orchestration-context/my/contexts/%s/timing/heartbeat" % att,

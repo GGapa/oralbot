@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
-from paths import BASE
+from paths import BASE, browser_channel
 
 _args = [a for a in sys.argv[1:] if a]
 RESET = "--reset" in _args
@@ -35,7 +35,7 @@ if STOP.exists():
     STOP.unlink()
 
 with sync_playwright() as p:
-    ctx = p.chromium.launch_persistent_context(str(PROFILE), channel="chrome", headless=False,
+    ctx = p.chromium.launch_persistent_context(str(PROFILE), channel=browser_channel(), headless=False,
                                                args=["--use-fake-ui-for-media-stream"])
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     pg.goto(entry, wait_until="domcontentloaded", timeout=60000)
@@ -69,7 +69,7 @@ with sync_playwright() as p:
         name = lines[lines.index("课程管理") + 1] if "课程管理" in lines else "?"
         (BASE / "account.txt").write_text(name, encoding="utf-8")
         STOP.write_text("ok", encoding="utf-8")
-        print("LOGIN OK，当前账号：%s，cookie 已保存" % name, flush=True)
+        print("LOGIN OK，当前账号：%s，cookie 已保存，登录窗口将自动关闭" % name, flush=True)
     else:
         STOP.write_text("fail", encoding="utf-8")
         print("登录超时", flush=True)
