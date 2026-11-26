@@ -108,6 +108,9 @@ POST learning-content/progress/my/{off}/{sectionId}  {activityIds:[...]}
 
 `learning-practice/my/offering/{off}/activity-progress` 可用于取得作答 `attemptId`，
 但它返回的旧作答状态可能与课程完成状态不同，不能单独用于跳过活动或验收。
+课程进度里另有 `taskId` 字段，与作答上下文 `attemptId` 不同源（已完成的活动中实测为空），
+代码只单独保留，不覆盖 `attemptId`，否则按 `attemptId` 查 `reviewResult` 会静默取不到分。
+进度接口漏掉某个活动时（通常是被锁定），按未完成处理并打印缺失的 id，不会整批停摆。
 
 ### 词汇训练
 
@@ -152,7 +155,8 @@ POST learning-practice/attempts/{ace}/{att}/situational/complete
 `mode` 使用预览中训练模式的小写形式；完成接口的 `trainingType` 使用 `Practice` 或 `Exam`。
 `next-shot` 幂等：不提交录音就不推进。`Narrative`（`timeLimit=0`）镜再取一次即跳过，
 `PureResponse` / `VisualResponse` 需要交录音。405 不按登录过期处理；401 由请求封装续期。
-场景循环、步数耗尽、评测失败或评测超时均返回错误，不再递交场景完成。
+场景循环、步数耗尽、评测失败或评测超时均返回错误，不再递交场景完成。这类失败的返回值里
+带 `attempt=` / `scene=` 两个 id：那次作答不会被自动关闭，需要清理时按 id 处理。
 
 ### 音频上传
 

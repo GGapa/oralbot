@@ -18,20 +18,31 @@ def progress_map():
                     {"activityIds": ids, "sectionId": SEC})
     if code != 200 or not isinstance(pr, list):
         raise RuntimeError("progress failed: %s %s" % (code, str(pr)[:200]))
-    attempts = {x["activityId"]: x for x in pr}
+    attempts = {x["activityId"]: x for x in pr if isinstance(x, dict) and x.get("activityId")}
     # Course progress is authoritative; attempt status can refer to stale contexts.
     code, course_progress = post("learning-content/progress/my/%s/%s" % (OFF, SEC),
                                  {"activityIds": ids})
-    if code != 200 or not isinstance(course_progress, list):
+    if code != 200 or not isinstance(course_progress, list) or not course_progress:
         raise RuntimeError("course progress failed: %s" % code)
-    course_ids = {state["activityId"] for state in course_progress}
-    if set(ids) - course_ids:
-        raise RuntimeError("course progress missing activities")
+    course_ids = set()
     for state in course_progress:
-        item = attempts.setdefault(state["activityId"], {})
-        item["status"] = state["status"]
+        if not isinstance(state, dict) or not state.get("activityId"):
+            continue
+        aid = state["activityId"]
+        course_ids.add(aid)
+        item = attempts.setdefault(aid, {})
+        item["status"] = state.get("status", "NOT_DONE")
+        # taskId 与作答执行上下文 attemptId 不是同一个 id 空间（已完成的 28 个活动里
+        # taskId 实测恒为空），只单独保留，绝不覆盖 attemptId —— scores.py 拿
+        # attemptId 去 orchestration-context 查 reviewResult，覆盖会让它静默变成 n/a。
         if state.get("taskId"):
-            item["attemptId"] = state["taskId"]
+            item["taskId"] = state["taskId"]
+    missing = [aid for aid in ids if aid not in course_ids]
+    if missing:
+        # 漏条目通常是锁定 / 未解锁的活动。run.py 的语义是「没完成就做」，
+        # 所以按未完成继续，而不是整批停摆。
+        print("[warn] 课程进度缺少 %d 个活动，按未完成处理：%s"
+              % (len(missing), ", ".join(missing)), flush=True)
     return attempts
 
 

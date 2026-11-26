@@ -40,16 +40,31 @@ class CourseProgressTests(unittest.TestCase):
         progress = module.progress_map()
         self.assertEqual(progress["a"]["status"], "NOT_DONE")
         self.assertEqual(progress["b"]["status"], "COMPLETED")
-        self.assertEqual(progress["b"]["attemptId"], "new")
+        # taskId 与作答上下文不同源：只能单独保留，不能覆盖 attemptId
+        self.assertEqual(progress["b"]["attemptId"], "current")
+        self.assertEqual(progress["b"]["taskId"], "new")
         module.post.assert_called_with("learning-content/progress/my/off/section", {"activityIds": ["a", "b"]})
 
-    def test_failed_or_incomplete_course_progress_does_not_fall_back_to_stale_state(self):
-        for result in ((503, {}), (200, [{"activityId": "a", "status": "COMPLETED"}])):
+    def test_failed_or_empty_course_progress_does_not_fall_back_to_stale_state(self):
+        for result in ((503, {}), (200, {}), (200, [])):
             with self.subTest(result=result):
                 module = load_module("tasks")
-                module.post.side_effect = [(200, []), result]
+                module.post.side_effect = [
+                    (200, [{"activityId": "a", "status": "COMPLETED", "attemptId": "old"}]), result]
                 with self.assertRaises(RuntimeError):
                     module.progress_map()
+
+    def test_missing_activity_is_warned_and_treated_as_not_done(self):
+        module = load_module("tasks")
+        module.post.side_effect = [
+            (200, [{"activityId": "a", "status": "COMPLETED", "attemptId": "old"}]),
+            (200, [{"activityId": "a", "status": "COMPLETED", "taskId": ""}]),
+        ]
+        with patch("builtins.print") as out:
+            progress = module.progress_map()
+        self.assertNotIn("b", progress)  # 缺条目 = 未完成，交给 run.py 继续处理
+        self.assertEqual(progress["a"]["attemptId"], "old")
+        self.assertIn("b", " ".join(str(c.args[0]) for c in out.call_args_list))
 
 
 class SituationalTests(unittest.TestCase):
@@ -123,7 +138,10 @@ class SituationalTests(unittest.TestCase):
         module = self.setup_scene()
         module.post.side_effect = [(200, {"attemptId": "attempt"}),
                                    (200, {"sceneId": "scene", "activityExecutionId": "execution"}), (500, {})]
-        self.assertEqual(module.do_situational({"id": "activity"}), "complete-failed 500")
+        result = module.do_situational({"id": "activity"})
+        self.assertTrue(result.startswith("complete-failed 500"), result)
+        self.assertIn("attempt=attempt", result)
+        self.assertIn("scene=execution", result)
 
 
 if __name__ == "__main__":
